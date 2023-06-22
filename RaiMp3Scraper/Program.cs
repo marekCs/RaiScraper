@@ -8,8 +8,10 @@ namespace RaiMp3Scraper
     {
         public static void Main(string[] args)
         {
-            var pathToExe = Process.GetCurrentProcess().MainModule.FileName;
-            var pathToContentRoot = Path.GetDirectoryName(pathToExe);
+            Process? currentProcess = Process.GetCurrentProcess();
+            ProcessModule? processModule = currentProcess.MainModule ?? throw new Exception("I can't run the program because the process path in the ProcessModule is null.");
+            string? pathToExe = processModule.FileName;
+            string? pathToContentRoot = Path.GetDirectoryName(pathToExe) ?? throw new Exception("Cannot find a relative path to the program, it is null.");
 
             Log.Logger = new LoggerConfiguration()
             .ReadFrom.Configuration(new ConfigurationBuilder()

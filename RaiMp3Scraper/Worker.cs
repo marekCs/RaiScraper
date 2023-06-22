@@ -5,21 +5,22 @@ using RaiMp3Scraper.Helpers;
 using RaiMp3Scraper.Models;
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Xml;
+using System.Xml.Linq;
 
 namespace RaiMp3Scraper
 {
     public class Worker : BackgroundService
     {
         private readonly ILogger<Worker> _logger;
-        private List<string>? _xmlSitemapUrls;
+        private List<string>? _sourceUrls;
         private string? _outputFolderPath;
-        private string? _urlBase;
         private DateTime _dateFrom;
         private DateTime _dateTo;
         private readonly AppSettings _appSettings;
         IBrowser? _browser = null;
-        private BrowserFetcher _browserFetcher;
+        private readonly BrowserFetcher _browserFetcher;
         private readonly HashSet<string> _downloadedUrls;
         private bool _isParsing;
         private const int _urlsPerBrowser = 20;
@@ -56,15 +57,15 @@ namespace RaiMp3Scraper
                 {
                     try
                     {
-                        StartParsing();
+                        LogStartParsing();
                         InitializeSettings();
-                        var reiNewsUrl = await ProcessXmlUrls(stoppingToken);
+                        var reiNewsUrl = await ProcessSourceUrls(stoppingToken);
                         if (reiNewsUrl.Count < 1)
                         {
                             await HandleNoUrlForParsing(stoppingToken);
                             continue;
                         }
-                        await ProcessReiNewsUrls(reiNewsUrl, stoppingToken, semaphore);
+                        await ProcessRaiNewsUrls(reiNewsUrl, stoppingToken, semaphore);
                     }
                     catch (Exception ex)
                     {
@@ -80,34 +81,32 @@ namespace RaiMp3Scraper
             LogCompletionInfo();
             await Task.Delay(TimeSpan.FromHours(6), stoppingToken);
         }
-        private async Task<ReiNewsModel> CreateModelFromUrlAsync(string url, IPage page)
+        private async Task<RaiNewsModel> CreateModelFromUrlAsync(string url, IPage page)
         {
+            string domain = new Uri(url).Host;
             await page.GoToAsync(url, new NavigationOptions { Timeout = 60000 });
-            await Task.Delay(_random.Next(80, 150));
+            await Task.Delay(_random.Next(6000, 6500));
 
             var urlParts = url.Split('/');
-            var model = new ReiNewsModel
+            bool isItRaiPlaySound = domain.Contains("raiplaysound");
+            var model = new RaiNewsModel
             {
                 SourceUrl = url,
-                Region = urlParts[4],
-                Channel = urlParts[3]
+                Region = isItRaiPlaySound ? urlParts[6].Split('-')[1] : urlParts[4],
+                Channel = isItRaiPlaySound ? urlParts[6].Split('-')[0] : urlParts[3]
             };
 
-            var (year, month, day, hour, minute) = await GetDateAndTimeAsync(urlParts, page);
+            var (year, month, day, hour, minute) = await GetDateAndTimeAsync(urlParts, page, domain);
 
-            var titleHelper = CreateTitleIdentification(urlParts);
+            var titleHelper = CreateTitleIdentification(urlParts, domain);
 
             var videoElement = await page.QuerySelectorAsync("#vjs_video_3_THEOplayerAqt video");
             var titleElement = await page.QuerySelectorAsync("h1");
 
             if (videoElement != null)
             {
-                var srcHandle = await videoElement.GetPropertyAsync("src");
-                var titleHandle = await titleElement.GetPropertyAsync("textContent");
-                var tryTitle = await titleHandle.JsonValueAsync<string>();
-
-                model.Title = tryTitle ?? titleHelper;
-                model.Mp3Url = await srcHandle.JsonValueAsync<string>();
+                model.Mp3Url = await videoElement.EvaluateFunctionAsync<string>("e => e.getAttribute('src')");
+                model.Title = await titleElement.EvaluateFunctionAsync<string>("e => e.textContent") ?? titleHelper;
 
                 model.Year = year;
                 model.Month = month;
@@ -120,27 +119,32 @@ namespace RaiMp3Scraper
                     _logger.LogInformation("Successfully mapped. Mp3 url: {mp3Url}", model.Mp3Url);
                     return model;
                 }
-            }
-            return new ReiNewsModel();
-        }
-        private async Task<List<ReiNewsModel>> ProcessXmlUrls(CancellationToken stoppingToken)
-        {
-            List<ReiNewsModel> reiNewsUrl = new List<ReiNewsModel>();
-            int xmlUrlCounter = 1;
-            if (_xmlSitemapUrls is not null && _xmlSitemapUrls.Count > 0)
-            {
-                foreach (var xmlUrl in _xmlSitemapUrls)
+                else
                 {
-                    LogXmlParseInfo(xmlUrlCounter);
-                    var urlsFromXml = ParseXmlUrlsToHtml(_urlBase + xmlUrl);
-                    if (urlsFromXml is null)
+                    _logger.LogInformation("Failed to map: {url}. VideoElement: {video}, TitleElement: {title}", url, videoElement, titleElement);
+                    return model;
+                }
+            }
+            return new RaiNewsModel();
+        }
+        private async Task<List<RaiNewsModel>> ProcessSourceUrls(CancellationToken stoppingToken)
+        {
+            List<RaiNewsModel> reiNewsUrl = new();
+            int urlCounter = 1;
+            if (_sourceUrls is not null && _sourceUrls.Count > 0)
+            {
+                foreach (var sourceUrl in _sourceUrls)
+                {
+                    LogInitialParseInfo(urlCounter);
+                    var parsedUrls = await ParseSourceUrlsToHtmlAsync(sourceUrl);
+                    if (parsedUrls is null)
                     {
                         await HandleNoUrlForParsing(stoppingToken);
                         continue;
                     }
-                    reiNewsUrl = await HandleUrlsFromXml(urlsFromXml);
-                    _logger.LogInformation("Finished downloading in XML url no: {xmlUrlCounter}.", xmlUrlCounter);
-                    xmlUrlCounter++;
+                    reiNewsUrl = await HandleParsedUrls(parsedUrls);
+                    _logger.LogInformation("Finished downloading in url no: {counter}.", urlCounter);
+                    urlCounter++;
                 }
             }
             else
@@ -149,14 +153,30 @@ namespace RaiMp3Scraper
             }
             return reiNewsUrl;
         }
-        public List<string> ParseXmlUrlsToHtml(string sitemapUrl)
+        public async Task<List<string>> ParseSourceUrlsToHtmlAsync(string sitemapUrl)
+        {
+            if (sitemapUrl.EndsWith(".xml"))
+            {
+                return await ParseUrlsFromXmlAsync(sitemapUrl);
+            }
+            else
+            {
+                return await ParseUrlsFromHtmlAsync(sitemapUrl);
+            }
+        }
+
+        private async Task<List<string>> ParseUrlsFromXmlAsync(string xmlUrl)
         {
             bool filterMustBeApplied = false;
-            var xmlDoc = new XmlDocument();
-            xmlDoc.Load(sitemapUrl);
-            var urlNodes = xmlDoc.GetElementsByTagName("loc");
+            var httpClient = new HttpClient();
+            var xmlContent = await httpClient.GetStringAsync(xmlUrl);
 
-            _logger.LogInformation("This XML url contains in total {count} html web pages.", urlNodes.Count);
+            var xmlDoc = XDocument.Parse(xmlContent);
+            XNamespace ns = "http://www.sitemaps.org/schemas/sitemap/0.9";
+            var urlNodes = xmlDoc.Descendants(ns + "loc");
+            var noOfHtmlUrls = urlNodes.Count();
+
+            _logger.LogInformation("This XML url contains in total {count} html web pages.", noOfHtmlUrls);
             // if there is a filter on the specific dates we want to parse
             if (_dateFrom != DateTime.MinValue && _dateTo != DateTime.MaxValue)
             {
@@ -165,8 +185,8 @@ namespace RaiMp3Scraper
             }
 
             // Filter URLs that contain "/audio/" or "/video/"
-            var audioVideoUrls = urlNodes.Cast<XmlNode>()
-                .Select(n => n.InnerText)
+            var audioVideoUrls = urlNodes
+                .Select(n => n.Value)
                 .Where(url => url.Contains("/audio/") || url.Contains("/video/"))
                 .ToList();
 
@@ -202,11 +222,91 @@ namespace RaiMp3Scraper
 
             return dateFilteredUrls;
         }
-        private async Task<List<ReiNewsModel>> ConvertUrlsToModel(List<string> playerUrls)
+
+
+        private async Task<List<string>> ParseUrlsFromHtmlAsync(string htmlUrl)
+        {
+            bool filterMustBeApplied = false;
+
+            _browser ??= await LaunchBrowserAsync();
+            using var page = await _browser.NewPageAsync();
+
+            await ConfigurePageAsync(page);
+
+            await page.GoToAsync(htmlUrl);
+            var content = await page.GetContentAsync();
+
+            // Parse content using HtmlAgilityPack
+            var doc = new HtmlDocument();
+            doc.LoadHtml(content);
+
+            var urls = new List<string>();
+            var nodes = doc.DocumentNode.SelectNodes("//div[@role='listitem']/article[@class='relative']/a[@class='relative group block']");
+
+            if (nodes != null)
+            {
+                foreach (var node in nodes)
+                {
+                    var hrefValue = node.GetAttributeValue("href", string.Empty);
+                    if (!string.IsNullOrEmpty(hrefValue))
+                    {
+                        urls.Add("https://www.raiplaysound.it" + hrefValue);
+                    }
+                }
+            }
+
+            _logger.LogInformation("This HTML url contains in total {count} html web pages.", urls.Count);
+            // if there is a filter on the specific dates we want to parse
+            if (_dateFrom != DateTime.MinValue && _dateTo != DateTime.MaxValue)
+            {
+                filterMustBeApplied = true;
+                _logger.LogWarning("Looks like we'll have to apply the filter to the desired time period from {_dateFrom} to {_dateTo}.", _dateFrom, _dateTo);
+            }
+
+            // Filter URLs that contain "/audio/" or "/video/"
+            var audioVideoUrls = urls
+                .Where(url => url.Contains("/audio/") || url.Contains("/video/"))
+                .ToList();
+
+            if (!filterMustBeApplied)
+            {
+                return audioVideoUrls;
+            }
+
+            // If a filter is to be applied, we get the URLs that match the specified date
+            var dateFilteredUrls = audioVideoUrls
+                .Where(url =>
+                {
+                    // Get the part of the URL that contains the year and month
+                    var yearMonthString = url.Split(new[] { "/" }, StringSplitOptions.None)
+                        .SkipWhile(part => !int.TryParse(part, out _)) // Skip non-numeric parts
+                        .Take(2) // Year, Month
+                        .DefaultIfEmpty(string.Empty) // If there are not enough parts, use an empty string
+                        .Aggregate((part1, part2) => $"{part1}-{part2}"); // Join the parts with hyphens
+
+                    if (!DateTime.TryParseExact(yearMonthString, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                    {
+                        return false; // If the date string could not be parsed, exclude the URL
+                    }
+
+                    date = new DateTime(date.Year, date.Month, 1); // Consider only year and month
+
+                    var dateFrom = new DateTime(_dateFrom.Year, _dateFrom.Month, 1);
+                    var dateTo = new DateTime(_dateTo.Year, _dateTo.Month, 1);
+
+                    return date >= dateFrom && date <= dateTo;
+                })
+                .ToList();
+
+            DisposeBrowserPages();
+            return dateFilteredUrls;
+        }
+
+        private async Task<List<RaiNewsModel>> ConvertUrlsToModel(List<string> playerUrls)
         {
             _logger.LogInformation("Let's convert string player urls to the object models.");
 
-            var modelList = new ConcurrentBag<ReiNewsModel>();
+            var modelList = new ConcurrentBag<RaiNewsModel>();
             var urlGroups = GetUrlGroups(playerUrls);
 
             // SemaphoreSlim is used to limit concurrent threads.
@@ -218,17 +318,13 @@ namespace RaiMp3Scraper
 
             return modelList.ToList();
         }
-        private async Task ProcessUrlGroupAsync(List<string> urlGroup, SemaphoreSlim semaphore, ConcurrentBag<ReiNewsModel> modelList)
+        private async Task ProcessUrlGroupAsync(List<string> urlGroup, SemaphoreSlim semaphore, ConcurrentBag<RaiNewsModel> modelList)
         {
             await semaphore.WaitAsync();
 
             try
             {
                 _browser ??= await LaunchBrowserAsync();
-                using var page = await _browser.NewPageAsync();
-
-                await ConfigurePageAsync(page);
-
                 foreach (var url in urlGroup)
                 {
                     try
@@ -237,13 +333,16 @@ namespace RaiMp3Scraper
                         {
                             continue;
                         }
+                        using var page = await _browser.NewPageAsync();
 
+                        await ConfigurePageAsync(page);
                         var model = await CreateModelFromUrlAsync(url, page);
 
-                        if (model != null)
+                        if (model != null && model.Mp3Url is not null)
                         {
                             modelList.Add(model);
                         }
+                        await page.CloseAsync();
                     }
                     catch (Exception ex)
                     {
@@ -251,14 +350,14 @@ namespace RaiMp3Scraper
                         // optionally throw the error after logging: throw;
                     }
                 }
-                await page.CloseAsync();
+                
             }
             finally
             {
                 semaphore.Release();
             }
         }
-        private async Task DownloadMp3(ReiNewsModel reiNewsModel)
+        private async Task DownloadMp3(RaiNewsModel reiNewsModel)
         {
             try
             {
@@ -277,7 +376,7 @@ namespace RaiMp3Scraper
             }
             catch (Exception ex)
             {
-                _logger.LogError("Error downloading {reiNewsModel.Mp3Url}: {ex.Message}", reiNewsModel.Mp3Url, ex.Message);
+                _logger.LogError("Error downloading {mp3Url}: {message}", reiNewsModel.Mp3Url, ex.Message);
             }
         }
 
@@ -289,8 +388,7 @@ namespace RaiMp3Scraper
                 throw new NullReferenceException(nameof(_appSettings));
             }
             _outputFolderPath = _appSettings.OutputFolderPath;
-            _xmlSitemapUrls = _appSettings.UrlAddressesToParse;
-            _urlBase = _appSettings.UrlBase;
+            _sourceUrls = _appSettings.UrlAddressesToParse;
             _dateFrom = _appSettings.DateFrom;
             _dateTo = _appSettings.DateTo;
         }
@@ -311,24 +409,24 @@ namespace RaiMp3Scraper
             // 100 means anytime
             return _appSettings.ParsingHours is null || _appSettings.ParsingHours.Contains(100) || _appSettings.ParsingHours.Contains(now.Hour) && !_isParsing;
         }
-        private void StartParsing()
+        private void LogStartParsing()
         {
             _isParsing = true;
             _logger.LogInformation("Worker Mp3 Scraper running at: {time}", DateTimeOffset.Now);
         }
-        private void LogXmlParseInfo(int xmlUrlCounter)
+        private void LogInitialParseInfo(int counter)
         {
-            var totalXMLUrlsToParse = _xmlSitemapUrls?.Count ?? 0;
-            _logger.LogInformation("Ready to parse total XML urls: {url}", totalXMLUrlsToParse);
-            _logger.LogInformation("Start parsing XML url ------------ {xmlUrlCounter}. ----------- at {date}", xmlUrlCounter, DateTime.Now);
+            var totalXMLUrlsToParse = _sourceUrls?.Count ?? 0;
+            _logger.LogInformation("Ready to parse total urls: {url}", totalXMLUrlsToParse);
+            _logger.LogInformation("Start parsing url ------------ {counter}. ----------- at {date}", counter, DateTime.Now);
         }
-        private async Task<List<ReiNewsModel>> HandleUrlsFromXml(List<string> urlsFromXml)
+        private async Task<List<RaiNewsModel>> HandleParsedUrls(List<string> parsedUrls)
         {
-            _logger.LogInformation("System found total url with mp3 player: {url}", urlsFromXml.Count);
-            var reiNewsUrl = await ConvertUrlsToModel(urlsFromXml);
-            if (urlsFromXml?.Count != reiNewsUrl.Count)
+            _logger.LogInformation("System found total url with mp3 player: {url}", parsedUrls.Count);
+            var reiNewsUrl = await ConvertUrlsToModel(parsedUrls);
+            if (parsedUrls?.Count != reiNewsUrl.Count)
             {
-                _logger.LogInformation("After conversion and checking if any file has already been downloaded, we are left with a total of: {reiNewsUrl.Count}", reiNewsUrl.Count);
+                _logger.LogInformation("After conversion and checking if any file has already been downloaded, we are left with a total of: {count}", reiNewsUrl.Count);
             }
             return reiNewsUrl;
         }
@@ -346,7 +444,7 @@ namespace RaiMp3Scraper
                 _browser = LaunchBrowserAsync().GetAwaiter().GetResult();
             }
         }
-        private async Task ProcessReiNewsUrls(List<ReiNewsModel> reiNewsUrl, CancellationToken stoppingToken, SemaphoreSlim semaphore)
+        private async Task ProcessRaiNewsUrls(List<RaiNewsModel> reiNewsUrl, CancellationToken stoppingToken, SemaphoreSlim semaphore)
         {
             foreach (var rnModel in reiNewsUrl)
             {
@@ -368,11 +466,11 @@ namespace RaiMp3Scraper
                 }
             }
         }
-        private bool IsValidReiNewsModel(ReiNewsModel rnModel)
+        private bool IsValidReiNewsModel(RaiNewsModel rnModel)
         {
             return rnModel is not null && !string.IsNullOrEmpty(rnModel.SourceUrl) && rnModel != null && (!string.IsNullOrEmpty(rnModel.Mp3Url)) && _appSettings.DownloadInfoPath is not null;
         }
-        private async Task ProcessIndividualReiNewsModel(ReiNewsModel rnModel, CancellationToken stoppingToken)
+        private async Task ProcessIndividualReiNewsModel(RaiNewsModel rnModel, CancellationToken stoppingToken)
         {
             if (rnModel == null) throw new ArgumentNullException(nameof(rnModel));
             if (rnModel.SourceUrl == null) throw new ArgumentNullException(nameof(rnModel.SourceUrl));
@@ -389,16 +487,21 @@ namespace RaiMp3Scraper
         }
         private void EndParsing()
         {
+            DisposeBrowserPages();
+            _isParsing = false;
+        }
+
+        private void DisposeBrowserPages()
+        {
             if (_browser != null)
             {
                 _browser?.CloseAsync().GetAwaiter().GetResult();
                 _browser?.DisposeAsync().GetAwaiter().GetResult();
                 _browser = null;
             }
-            _isParsing = false;
-
             _browserFetcher?.Dispose();
         }
+
         private void LogCompletionInfo()
         {
             _logger.LogInformation("Done. ---------------------- Parsing all XML urls has finished at {DateTime.Now}.", DateTime.Now);
@@ -413,14 +516,23 @@ namespace RaiMp3Scraper
             }
             return false;
         }
-        private string CreateTitleIdentification(string[]? urlParts)
+        private string CreateTitleIdentification(string[]? urlParts, string domain)
         {
             var returnedValue = string.Empty;
+            bool isItRaiPlaySound = domain.Contains("raiplaysound");
             try
             {
                 if (urlParts is not null && urlParts.Length > 6)
                 {
-                    returnedValue = $"{urlParts[3]} - {urlParts[4]} - {urlParts[5]} / {urlParts[6]}/{urlParts[7]}";
+                    if (isItRaiPlaySound)
+                    {
+                        string url = urlParts[6];
+                        returnedValue = url.Replace(".html", "");
+                    }
+                    else
+                    {
+                        returnedValue = $"{urlParts[3]} - {urlParts[4]} - {urlParts[5]} / {urlParts[6]}/{urlParts[7]}";
+                    }
                 }
             }
             catch (NullReferenceException ex)
@@ -437,8 +549,9 @@ namespace RaiMp3Scraper
                 .Select(g => g.Select(x => x.Url).ToList())
                 .ToList();
         }
-        private async Task<(int year, int month, int day, int hour, int minute)> ScrapeDateAndTimeAsync(IPage page)
+        private async Task<(int year, int month, int day, int hour, int minute)> ScrapeDateAndTimeAsync(IPage page, string domain)
         {
+            bool isItRaiPlaySound = domain.Contains("raiplaysound");
             int year = 0;
             int month = 0;
             int day = 0;
@@ -451,22 +564,49 @@ namespace RaiMp3Scraper
                 var htmlDocument = new HtmlDocument();
                 htmlDocument.LoadHtml(htmlContent);
 
-                var dateTimeNode = htmlDocument.DocumentNode.SelectSingleNode("//div[@class='article__date']//time/@datetime");
-
-                if (dateTimeNode != null)
+                if (isItRaiPlaySound)
                 {
-                    var dateTimeAttribute = dateTimeNode.GetAttributeValue("datetime", null);
-                    if (!string.IsNullOrWhiteSpace(dateTimeAttribute))
+                    var dateTimeNode = htmlDocument.DocumentNode.SelectSingleNode("//h1");
+                    if (dateTimeNode != null)
                     {
-                        var dateTime = DateTime.Parse(dateTimeAttribute);
+                        string pattern = @"\b\d{2}\/\d{2}\/\d{4} ore \d{2}:\d{2}\b";
+                        var regex = new Regex(pattern);
+                        var match = regex.Match(dateTimeNode.InnerHtml);
 
-                        year = dateTime.Year;
-                        month = dateTime.Month;
-                        day = dateTime.Day;
-                        hour = dateTime.Hour;
-                        minute = dateTime.Minute;
+                        if (match.Success)
+                        {
+                            var dateTimeString = match.Value.Replace(" ore ", " ");
+                            var format = "dd/MM/yyyy HH:mm";
+                            var dateTime = DateTime.ParseExact(dateTimeString, format, CultureInfo.InvariantCulture);
+
+                            year = dateTime.Year;
+                            month = dateTime.Month;
+                            day = dateTime.Day;
+                            hour = dateTime.Hour;
+                            minute = dateTime.Minute;
+                        }
                     }
                 }
+                else
+                {
+                    var dateTimeNode = htmlDocument.DocumentNode.SelectSingleNode("//div[@class='article__date']//time/@datetime");
+
+                    if (dateTimeNode != null)
+                    {
+                        var dateTimeAttribute = dateTimeNode.GetAttributeValue("datetime", null);
+                        if (!string.IsNullOrWhiteSpace(dateTimeAttribute))
+                        {
+                            var dateTime = DateTime.Parse(dateTimeAttribute);
+
+                            year = dateTime.Year;
+                            month = dateTime.Month;
+                            day = dateTime.Day;
+                            hour = dateTime.Hour;
+                            minute = dateTime.Minute;
+                        }
+                    }
+                }
+                
             }
             catch (NullReferenceException ex)
             {
@@ -478,8 +618,9 @@ namespace RaiMp3Scraper
             }
             return (year, month, day, hour, minute);
         }
-        private static (int year, int month) ParseYearAndMonthFromUrlParts(string[] urlParts)
+        private static (int year, int month) ParseYearAndMonthFromUrlParts(string[] urlParts, string domain)
         {
+            bool isItRaiPlaySound = domain.Contains("raiplaysound");
             int year = 0;
             int month = 0;
 
@@ -488,11 +629,22 @@ namespace RaiMp3Scraper
                 return (year, month);
             }
 
-            if (!int.TryParse(urlParts[6], out year) || urlParts[6].Length != 4 ||
-                !int.TryParse(urlParts[7], out month) || urlParts[7].Length < 1)
+            if (isItRaiPlaySound)
             {
-                return (year, month);
+                if (int.TryParse(urlParts[4], out year) && int.TryParse(urlParts[5], out month))
+                {
+                    return (year, month);
+                }
             }
+            else
+            {
+                if (!int.TryParse(urlParts[6], out year) || urlParts[6].Length != 4 ||
+                !int.TryParse(urlParts[7], out month) || urlParts[7].Length < 1)
+                {
+                    return (year, month);
+                }
+            }
+            
 
             return (year, month);
         }
@@ -507,38 +659,95 @@ namespace RaiMp3Scraper
 
             return part.Split("-del-")[1].Split("-ore-");
         }
-        private static bool IsDateAndTimePartsValid(string[] dateAndTimeParts)
+
+        private string[] ParsePartsFromRaiPlayUrl(string[] urlParts)
         {
-            return dateAndTimeParts != null && dateAndTimeParts.Length >= 2 && dateAndTimeParts[0].Length >= 8 && dateAndTimeParts[1].Length >= 4;
+            // Assuming urlParts[4] is "GR-Basilicata-del-30042023-ore-1210-something"
+            string dateAndTimePart = urlParts[6];
+            string[] parts = dateAndTimePart.Split('-');
+
+            string datePart = parts[3]; // "30042023"
+            string timePart = parts[5]; // "1210"
+
+            string year = datePart.Substring(4, 4);
+            string month = datePart.Substring(2, 2);
+            string day = datePart.Substring(0, 2);
+
+            string hour = timePart.Substring(0, 2);
+            string minute = timePart.Substring(2, 2);
+
+            return new[] { year, month, day, hour, minute };
         }
-        private static (int year, int month, int day, int hour, int minute) ParseDateAndTimeParts(string[] dateAndTimeParts)
+        private static bool IsDateAndTimePartsValid(string[] dateAndTimeParts, string domain)
         {
-            int year = int.Parse(dateAndTimeParts[0].Substring(4, 4));
-            int month = int.Parse(dateAndTimeParts[0].Substring(2, 2));
-            int day = int.Parse(dateAndTimeParts[0].Substring(0, 2));
-            int hour = int.Parse(dateAndTimeParts[1].Substring(0, 2));
-            int minute = int.Parse(dateAndTimeParts[1].Substring(2, 2));
-
-            return (year, month, day, hour, minute);
-        }
-        private async Task<(int year, int month, int day, int hour, int minute)> GetDateAndTimeAsync(string[] urlParts, IPage page)
-        {
-            int year, month, day, hour, minute;
-
-            string[] dateAndTimeParts = GetDateAndTimeParts(urlParts);
-
-            if (IsDateAndTimePartsValid(dateAndTimeParts))
+            bool isItRaiPlaySound = domain.Contains("raiplaysound");
+            if (dateAndTimeParts is null)
             {
-                (year, month, day, hour, minute) = ParseDateAndTimeParts(dateAndTimeParts);
+                return false;
+            }
+            bool isValid;
+            if (isItRaiPlaySound)
+            {
+                string dateString = string.Join(" ", dateAndTimeParts);
+                isValid = DateTime.TryParseExact(
+                    dateString,
+                    "yyyy MM dd HH mm",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out _);
             }
             else
             {
-                (year, month, day, hour, minute) = await ScrapeDateAndTimeAsync(page);
+                isValid = dateAndTimeParts.Length >= 2 && dateAndTimeParts[0].Length >= 8 && dateAndTimeParts[1].Length >= 4;
+            }
+            return isValid;
+        }
+        private static (int year, int month, int day, int hour, int minute) ParseDateAndTimeParts(string[] dateAndTimeParts, string domain)
+        {
+            bool isItRaiPlaySound = domain.Contains("raiplaysound");
+            int year, month, day, hour, minute;
+
+            if (isItRaiPlaySound)
+            {
+                year = int.Parse(dateAndTimeParts[0].ToString().Trim());
+                month = int.Parse(dateAndTimeParts[1].ToString().Trim());
+                day = int.Parse(dateAndTimeParts[2].ToString().Trim());
+                hour = int.Parse(dateAndTimeParts[3].ToString().Trim());
+                minute = int.Parse(dateAndTimeParts[4].ToString().Trim());
+            }
+            else
+            {
+                year = int.Parse(dateAndTimeParts[0].Substring(4, 4));
+                month = int.Parse(dateAndTimeParts[0].Substring(2, 2));
+                day = int.Parse(dateAndTimeParts[0].Substring(0, 2));
+                hour = int.Parse(dateAndTimeParts[1].Substring(0, 2));
+                minute = int.Parse(dateAndTimeParts[1].Substring(2, 2));
+            }
+            
+
+            return (year, month, day, hour, minute);
+        }
+        private async Task<(int year, int month, int day, int hour, int minute)> GetDateAndTimeAsync(string[] urlParts, IPage page, string domain)
+        {
+            int year, month, day, hour, minute;
+            bool isItRaiPlaySound = domain.Contains("raiplaysound");
+
+            string[] dateAndTimeParts = isItRaiPlaySound
+                ? ParsePartsFromRaiPlayUrl(urlParts)
+                : GetDateAndTimeParts(urlParts);
+
+            if (IsDateAndTimePartsValid(dateAndTimeParts, domain))
+            {
+                (year, month, day, hour, minute) = ParseDateAndTimeParts(dateAndTimeParts, domain);
+            }
+            else
+            {
+                (year, month, day, hour, minute) = await ScrapeDateAndTimeAsync(page, domain);
             }
 
             if (dateAndTimeParts is null && year == 0)
             {
-                (year, month) = ParseYearAndMonthFromUrlParts(urlParts);
+                (year, month) = ParseYearAndMonthFromUrlParts(urlParts, domain);
             }
 
             return (year, month, day, hour, minute);
@@ -570,7 +779,7 @@ namespace RaiMp3Scraper
                 }
             };
         }
-        private string PreparePath(ReiNewsModel model)
+        private string PreparePath(RaiNewsModel model)
         {
             var regionFolder = string.IsNullOrEmpty(model.Region) ? "" : model.Region.Replace(" ", "-");
             var channelFolder = string.IsNullOrEmpty(model.Channel) ? "" : model.Channel.Replace(" ", "-");
@@ -586,7 +795,7 @@ namespace RaiMp3Scraper
             var fileName = $"{channelFolder}_{regionFolder}_{model.Year}_{model.Month}{dayTime}.mp3";
 
             // Replace spaces in the file name with dashes
-            fileName = fileName.Replace(" ", "_");
+            fileName = fileName.Replace(" ", "_").ToLower(); ;
 
             if (_outputFolderPath == null)
             {
@@ -623,23 +832,23 @@ namespace RaiMp3Scraper
 
             return userAgent;
         }
-        //private async Task CheckRaiCookies(IPage page)
-        //{
-        //    try
-        //    {
-        //        var cookieBanner = await page.WaitForSelectorAsync(".as-oil__close-banner.as-js-close-banner", new WaitForSelectorOptions { Timeout = 5000 });
-        //        if (cookieBanner != null)
-        //        {
-        //            _logger.LogInformation("Found cookies banner, rejecting cookies...");
-        //            await cookieBanner.ClickAsync();
-        //            await page.WaitForSelectorAsync(".as-oil__close-banner.as-js-close-banner", new WaitForSelectorOptions { Timeout = 5000, Hidden = true });
-        //        }
-        //    }
-        //    catch (WaitTaskTimeoutException)
-        //    {
-        //        _logger.LogInformation("Found no cookies banner, continuing...");
-        //    }
-        //}
+        private async Task CheckRaiCookies(IPage page)
+        {
+            try
+            {
+                var cookieBanner = await page.WaitForSelectorAsync(".as-oil__close-banner.as-js-close-banner", new WaitForSelectorOptions { Timeout = 5000 });
+                if (cookieBanner != null)
+                {
+                    _logger.LogInformation("Found cookies banner, rejecting cookies...");
+                    await cookieBanner.ClickAsync();
+                    await page.WaitForSelectorAsync(".as-oil__close-banner.as-js-close-banner", new WaitForSelectorOptions { Timeout = 5000, Hidden = true });
+                }
+            }
+            catch (WaitTaskTimeoutException)
+            {
+                _logger.LogInformation("Found no cookies banner, continuing...");
+            }
+        }
         #endregion
     }
 

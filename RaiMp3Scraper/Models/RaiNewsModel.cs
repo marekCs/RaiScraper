@@ -1,6 +1,6 @@
 ﻿namespace RaiMp3Scraper.Models
 {
-    public class ReiNewsModel
+    public class RaiNewsModel
     {
         public int Id { get; set; }
         public string? Title { get; set; }

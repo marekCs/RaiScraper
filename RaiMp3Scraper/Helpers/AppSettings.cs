@@ -5,7 +5,6 @@
         public string? OutputFolderPath { get; set; }
         public List<string>? UrlAddressesToParse { get; set; }
         public string? FFmpegPath { get; set; }
-        public string? UrlBase { get; set; }
         public DateTime DateFrom { get; set; } = DateTime.MinValue;
         public DateTime DateTo { get; set; } = DateTime.MaxValue;
         public string? LogFilePath { get; set; }
