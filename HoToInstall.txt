@@ -1,0 +1,8 @@
+check that all paths are valid in appsettings.json in the publish folder! Next, the date dateFrom and dateTo must be set, i.e. set DateTime.MinValue or DateTime.MaxValue even if you don't want specific values but there must always be some!!!
+
+1) create service: sc.exe create RaiMp3Scraper binpath= D:\Marek_Dev\RaiMp3Scraper\publish\RaiMp3Scraper.exe sta
+rt= auto
+2) start it like this: sc.exe start RaiMp3Scraper
+3) stop it: sc.exe stop RaiMp3Scraper
+4) If you want to remove it, make sure you run this command: taskkill /F /IM mmc.exe
+5) close all service windows and delete: sc.exe start RaiMp3Scraper

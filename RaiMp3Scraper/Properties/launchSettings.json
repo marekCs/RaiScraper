@@ -1,0 +1,11 @@
+﻿{
+  "profiles": {
+    "RaiMp3Scraper": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

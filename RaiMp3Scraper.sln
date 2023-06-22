@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.6.33801.468
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RaiMp3Scraper", "RaiMp3Scraper\RaiMp3Scraper.csproj", "{1A8713C3-BB04-48BC-AE56-AB2D3F4ADA5D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1A8713C3-BB04-48BC-AE56-AB2D3F4ADA5D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A8713C3-BB04-48BC-AE56-AB2D3F4ADA5D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A8713C3-BB04-48BC-AE56-AB2D3F4ADA5D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A8713C3-BB04-48BC-AE56-AB2D3F4ADA5D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {52A12AD5-B909-49CE-9613-F7754A023659}
+	EndGlobalSection
+EndGlobal
