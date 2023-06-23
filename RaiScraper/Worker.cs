@@ -14,6 +14,7 @@ namespace RaiScraper
         private readonly IBrowserService _browserService;
         private readonly IUrlService _urlService;
         private readonly IModelProcessingService _modelProcessingService;
+        private readonly IDownloadService _downloadService;
         private readonly List<string>? _sourceUrls;
         private readonly AppSettingOptions _appSettings;
         private bool _isParsing;
@@ -23,7 +24,8 @@ namespace RaiScraper
                       IScraperService scraperService,
                       IBrowserService browserService,
                       IUrlService urlService,
-                      IModelProcessingService modelProcessingService)
+                      IModelProcessingService modelProcessingService,
+                      IDownloadService downloadService)
         {
             if (appSettingsOptions is null)
             {
@@ -35,17 +37,9 @@ namespace RaiScraper
             _browserService = browserService;
             _urlService = urlService;
             _modelProcessingService = modelProcessingService;
+            _downloadService = downloadService;
             _appSettings = appSettingsOptions.Value;
             _sourceUrls = _appSettings.UrlAddressesToParse;
-
-
-
-#if DEBUG
-            _appSettings.OutputFolderPath = "C:\\Users\\marek\\Downloads\\mp3";
-            _appSettings.LogFilePath = "C:\\Users\\marek\\Downloads\\Logs\\log-.txt";
-            _appSettings.DownloadInfoPath = "C:\\Users\\marek\\Downloads\\Logs\\DownloadedUrls.txt";
-            _appSettings.FFmpegPath = "C:\\Program Files\\Ffmpeg\\bin\\ffmpeg.exe";
-#endif
         }
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -92,7 +86,7 @@ namespace RaiScraper
                         continue;
                     }
                     reiNewsUrl = await HandleParsedUrls(parsedUrls);
-                    _logger.LogInformation("Finished downloading in url no: {counter}.", urlCounter);
+                    _logger.LogInformation("Finished downloading for url no: {counter}.", urlCounter);
                     urlCounter++;
                 }
             }
@@ -105,7 +99,6 @@ namespace RaiScraper
         private async Task ProcessUrlGroupAsync(List<string> urlGroup, SemaphoreSlim semaphore, ConcurrentBag<RaiNewsModel> modelList)
         {
             await semaphore.WaitAsync();
-            IPage? page = null;
             try
             {
                 using var browser = await _browserService.LaunchBrowserAsync();
@@ -118,11 +111,11 @@ namespace RaiScraper
                             continue;
                         }
 
-                        page = await browser.NewPageAsync();
-                        var model = await _modelProcessingService.CreateModelFromUrlAsync(url, page);
+                        var model = await _modelProcessingService.CreateModelFromUrlAsync(url, browser);
 
-                        if (model != null && (!string.IsNullOrEmpty(model.Mp3Url) || !string.IsNullOrEmpty(model.Mp4Url)))
+                        if (model != null && (!string.IsNullOrEmpty(model.Mp3Url) || model.Mp4Url.Count > 0))
                         {
+                            await _downloadService.DownloadMedium(model);
                             modelList.Add(model);
                         }
                     }
@@ -130,13 +123,6 @@ namespace RaiScraper
                     {
                         _logger.LogCritical("An error occurred: {error}", ex.Message);
                         // optionally throw the error after logging: throw;
-                    }
-                    finally
-                    {
-                        if (page != null) // If page was assigned
-                        {
-                            await page.CloseAsync();
-                        }
                     }
                 }
 

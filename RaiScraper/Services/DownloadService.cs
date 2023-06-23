@@ -36,7 +36,7 @@ namespace RaiScraper.Services
                     await File.WriteAllBytesAsync(path, bytes);
                     _logger.LogInformation("Mp3 has been successfully downloaded: {path}", path);
                 }
-                else if (model.Mp4Url is not null && model.Mp4Url.Length > 0)
+                else if (model.Mp4Url is not null && model.Mp4Url.Count > 0)
                 {
                     await DownloadVideoToAudio(model.Mp4Url, path);
                 }
@@ -48,21 +48,37 @@ namespace RaiScraper.Services
             }
         }
 
-        private async Task DownloadVideoToAudio(string url, string path)
+        private async Task DownloadVideoToAudio(List<string> urlList, string path)
         {
-            using var process = new Process
+            foreach (var url in urlList)
             {
-                StartInfo = new ProcessStartInfo
+                using var process = new Process
                 {
-                    FileName = _appSettings.FFmpegPath,
-                    Arguments = $"-i \"{url}\" -vn -b:a 128k \"{path}\"",
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = _appSettings.FFmpegPath,
+                        Arguments = $"-i \"{url}\" -vn -b:a 128k \"{path}\"",
+                        RedirectStandardOutput = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                    }
+                };
+                try
+                {
+                    process.Start();
+                    await process.WaitForExitAsync();
+                    if (process.ExitCode == 0)
+                    {
+                        // If the process successfully completes, break the loop
+                        break;
+                    }
                 }
-            };
-            process.Start();
-            await process.WaitForExitAsync();
+                catch
+                {
+                    // If an error occurs while trying to download and convert the video, continue to the next URL
+                    continue;
+                }
+            }
         }
     }
 }

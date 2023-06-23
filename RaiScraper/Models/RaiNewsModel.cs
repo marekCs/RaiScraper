@@ -6,7 +6,7 @@
         public string? Title { get; set; }
         public string? SourceUrl { get; set; }
         public string? Mp3Url { get; set; }
-        public string? Mp4Url { get; set; }
+        public List<string> Mp4Url { get; set; } = new List<string>();
         public string? Region { get; set; }
         public string? Channel { get; set; }
         public int Year { get; set; }

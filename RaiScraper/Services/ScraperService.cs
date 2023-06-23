@@ -258,23 +258,23 @@ namespace RaiScraper.Services
             }
 
         }
-        private async Task ConfigurePageAsync(IPage page)
+        public async Task ConfigurePageAsync(IPage page)
         {
             var randomBrowser = _browserService.GetRandomUserAgent();
             await page.SetUserAgentAsync(randomBrowser);
-            //await page.SetRequestInterceptionAsync(true);
+            await page.SetRequestInterceptionAsync(true);
 
-            //page.Request += async (sender, e) =>
-            //{
-            //    if (e.Request.ResourceType == ResourceType.Image)
-            //    {
-            //        await e.Request.AbortAsync();
-            //    }
-            //    else
-            //    {
-            //        await e.Request.ContinueAsync();
-            //    }
-            //};
+            page.Request += async (sender, e) =>
+            {
+                if (e.Request.ResourceType == ResourceType.Image)
+                {
+                    await e.Request.AbortAsync();
+                }
+                else
+                {
+                    await e.Request.ContinueAsync();
+                }
+            };
         }
     }
 }

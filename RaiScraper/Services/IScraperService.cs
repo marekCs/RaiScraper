@@ -6,5 +6,6 @@ namespace RaiScraper.Services
     {
         Task<(int year, int month, int day, int hour, int minute)> ScrapeDateAndTimeAsync(IPage page, string domain);
         Task<List<string>> ScrapeSourceUrlsToHtmlAsync(string sitemapUrl);
+        Task ConfigurePageAsync(IPage page);
     }
 }
