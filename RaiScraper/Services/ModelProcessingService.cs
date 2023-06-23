@@ -49,10 +49,15 @@ namespace RaiScraper.Services
             string domain = new Uri(url).Host;
             var model = new RaiNewsModel();
             var mediumUrls = new HashSet<string>();
-            using var page = await browser.NewPageAsync();
-            await page.SetUserAgentAsync(_browserService.GetRandomUserAgent());
+            
             try
             {
+                if (browser == null || browser.IsClosed)
+                {
+                    browser = await _browserService.LaunchBrowserAsync();
+                }
+                using var page = await browser.NewPageAsync();
+                await page.SetUserAgentAsync(_browserService.GetRandomUserAgent());
                 await page.SetRequestInterceptionAsync(true);
                 page.Request += async (sender, e) =>
                 {
@@ -65,7 +70,7 @@ namespace RaiScraper.Services
                 var navigationOptions = new NavigationOptions
                 {
                     Timeout = 0,
-                    WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }
+                    WaitUntil = new[] { WaitUntilNavigation.Load }
                 };
                 await page.GoToAsync(url, navigationOptions);
                 await Task.Delay(_random.Next(_appSettings.RandomValueFrom, _appSettings.RandomValueTo));
@@ -80,7 +85,7 @@ namespace RaiScraper.Services
                 var videoElement = await page.QuerySelectorAsync("#vjs_video_3_THEOplayerAqt video");
                 var titleHelper = _urlService.CreateTitleIdentification(urlParts, domain);
                 var titleElement = await page.QuerySelectorAsync("h1");
-
+                _logger.LogInformation("We found {count} url with medium.", mediumUrls.Count);
 
 
                 if (mediumUrls.Count > 0 || videoElement != null)
@@ -129,17 +134,14 @@ namespace RaiScraper.Services
                         return model;
                     }
                 }
+                await page.CloseAsync();
+                await page.DisposeAsync();
                 return model;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error on downloading/converting: {ex.Message}");
                 return model;
-            }
-            finally
-            {
-                await page.CloseAsync();
-                await page.DisposeAsync();
             }
         }
 

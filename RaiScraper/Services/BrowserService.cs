@@ -23,7 +23,7 @@ namespace RaiScraper.Services
             var launchOptions = new LaunchOptions
             {
                 Headless = true,
-                Args = new[] { _browserArg1, _browserArg2 }
+                Args = new[] { _browserArg1, _browserArg2, "--enable-logging","--v=1" }
             };
             return await Puppeteer.LaunchAsync(launchOptions);
         }

@@ -115,8 +115,13 @@ namespace RaiScraper
 
                         if (model != null && (!string.IsNullOrEmpty(model.Mp3Url) || model.Mp4Url.Count > 0))
                         {
+                            _logger.LogInformation("Model is correct, going to try download it.");
                             await _downloadService.DownloadMedium(model);
                             modelList.Add(model);
+                        }
+                        else
+                        {
+                            _logger.LogCritical("Model is not correct. model.Mp3 {mp3} and model.Mp4 {mp4}.", model?.Mp3Url, model?.Mp4Url.FirstOrDefault());
                         }
                     }
                     catch (Exception ex)
@@ -125,7 +130,6 @@ namespace RaiScraper
                         // optionally throw the error after logging: throw;
                     }
                 }
-
             }
             finally
             {

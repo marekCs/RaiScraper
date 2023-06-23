@@ -69,13 +69,14 @@ namespace RaiScraper.Services
                     await process.WaitForExitAsync();
                     if (process.ExitCode == 0)
                     {
-                        // If the process successfully completes, break the loop
+                        _logger.LogInformation("Video was converted to mp3 and saved to disk here: {path}", path);
                         break;
                     }
                 }
                 catch
                 {
                     // If an error occurs while trying to download and convert the video, continue to the next URL
+                    _logger.LogCritical("Error occurs while trying to download and convert the video, continue to the next URL.");
                     continue;
                 }
             }
