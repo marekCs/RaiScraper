@@ -4,19 +4,22 @@ namespace RaiScraper.Services
 {
     public class BrowserService : IBrowserService
     {
-        private readonly BrowserFetcher _browserFetcher;
         private readonly ILogger<BrowserService> _logger;
-        private const string _browserArg1 = "--disable-web-security";
-        private const string _browserArg2 = "--disable-features=IsolateOrigins,site-per-process";
+        private readonly BrowserFetcher _browserFetcher;
+        private readonly string _browserArg1;
+        private readonly string _browserArg2;
         public BrowserService(ILogger<BrowserService> logger)
         {
-            _logger = logger;
             _browserFetcher = new BrowserFetcher();
+            _browserArg1 = "--disable-web-security";
+            _browserArg2 = "--disable-setuid-sandbox";
 
+            // Download browser during initialization
+            _browserFetcher.DownloadAsync(BrowserFetcher.DefaultChromiumRevision).Wait();
+            _logger = logger;
         }
         public async Task<IBrowser> LaunchBrowserAsync()
         {
-            await _browserFetcher.DownloadAsync(BrowserFetcher.DefaultChromiumRevision);
             var launchOptions = new LaunchOptions
             {
                 Headless = true,
