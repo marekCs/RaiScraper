@@ -1,4 +1,4 @@
-﻿namespace RaiMp3Scraper.Models
+﻿namespace RaiScraper.Models
 {
     public class RaiNewsModel
     {

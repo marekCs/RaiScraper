@@ -1,8 +1,9 @@
-using RaiMp3Scraper.Helpers;
+using RaiScraper.Helpers;
+using RaiScraper.Services;
 using Serilog;
 using System.Diagnostics;
 
-namespace RaiMp3Scraper
+namespace RaiScraper
 {
     public class Program
     {
@@ -45,13 +46,20 @@ namespace RaiMp3Scraper
             {
                 var configuration = hostContext.Configuration;
                 var appSettingsSection = configuration.GetSection("AppSettings");
-                var appSettings = appSettingsSection.Get<AppSettings>();
+                var appSettings = appSettingsSection.Get<AppSettingOptions>();
 
-                services.Configure<AppSettings>(appSettingsSection);
+                services.Configure<AppSettingOptions>(appSettingsSection);
                 if (appSettings != null)
                 {
                     services.AddSingleton(appSettings);
                 }
+
+                services.AddSingleton<IScraperService, ScraperService>();
+                services.AddSingleton<IUrlService, UrlService>();
+                services.AddSingleton<IDownloadService, DownloadService>();
+                services.AddSingleton<IModelProcessingService, ModelProcessingService>();
+                services.AddSingleton<IBrowserService, BrowserService>();
+
                 services.AddHostedService<Worker>();
             });
     }

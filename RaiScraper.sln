@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.6.33801.468
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RaiMp3Scraper", "RaiMp3Scraper\RaiMp3Scraper.csproj", "{1A8713C3-BB04-48BC-AE56-AB2D3F4ADA5D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RaiScraper", "RaiScraper\RaiScraper.csproj", "{1A8713C3-BB04-48BC-AE56-AB2D3F4ADA5D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

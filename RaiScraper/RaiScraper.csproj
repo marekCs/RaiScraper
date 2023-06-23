@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>dotnet-RaiMp3Scraper-58c4b2f6-e889-4098-a1c1-50f0ba9b3441</UserSecretsId>
+    <UserSecretsId>dotnet-RaiScraper-58c4b2f6-e889-4098-a1c1-50f0ba9b3441</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

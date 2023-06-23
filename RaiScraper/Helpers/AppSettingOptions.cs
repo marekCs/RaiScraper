@@ -1,6 +1,6 @@
-﻿namespace RaiMp3Scraper.Helpers
+﻿namespace RaiScraper.Helpers
 {
-    public class AppSettings
+    public class AppSettingOptions
     {
         public string? OutputFolderPath { get; set; }
         public List<string>? UrlAddressesToParse { get; set; }

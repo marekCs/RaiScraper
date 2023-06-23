@@ -1,6 +1,6 @@
 ﻿using PuppeteerSharp;
 
-namespace RaiMp3Scraper.Utilities
+namespace RaiScraper.Utilities
 {
     public class BrowserGenerator : IBrowserGenerator
     {

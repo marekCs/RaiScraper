@@ -1,6 +1,6 @@
 ﻿{
   "profiles": {
-    "RaiMp3Scraper": {
+    "RaiScraper": {
       "commandName": "Project",
       "dotnetRunMessages": true,
       "environmentVariables": {
