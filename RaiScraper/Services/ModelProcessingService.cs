@@ -56,7 +56,7 @@ namespace RaiScraper.Services
             {
                 await page.SetUserAgentAsync(_browserService.GetRandomUserAgent());
                 await page.GoToAsync(url, navigationOptions);
-                await Task.Delay(_random.Next(80, 150));
+                await Task.Delay(_random.Next(280, 450));
                 await page.EvaluateFunctionAsync("() => { window.scrollTo(0, 400);}");
                 var mediumUrls = new HashSet<string>();
 
@@ -68,7 +68,7 @@ namespace RaiScraper.Services
                         mediumUrls.Add(e.Request.Url);
                     }
                 };
-                await Task.Delay(_random.Next(6000, 8000));
+                await Task.Delay(_random.Next(_appSettings.RandomValueFrom, _appSettings.RandomValueTo));
                 var urlParts = url.Split('/');
                 bool isItRaiPlaySound = domain.Contains("raiplaysound");
                 model.SourceUrl = url;
