@@ -252,7 +252,6 @@ namespace RaiScraper.Services
                     await browser.DisposeAsync();
                     browser = null; // To prevent further use of the browser object
                 }
-                _browserService.DisposeBrowserFetcher();
             }
 
         }

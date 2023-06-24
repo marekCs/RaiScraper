@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using PuppeteerSharp;
 using RaiScraper.Helpers;
 using RaiScraper.Models;
@@ -48,12 +49,11 @@ namespace RaiScraper.Services
             string domain = new Uri(url).Host;
             var model = new RaiNewsModel();
             var mediumUrls = new HashSet<string>();
-            IPage? page = null;
             try
             {
-                page = await browser.NewPageAsync();
+                using var page = await browser.NewPageAsync();
                 await Task.Delay(_random.Next(_appSettings.RandomValueFrom, _appSettings.RandomValueTo));
-                page = await _browserService.GetNewPage(page);
+                await page.SetUserAgentAsync(_browserService.GetRandomUserAgent());
                 await page.SetRequestInterceptionAsync(true);
                 page.Request += async (sender, e) =>
                 {
@@ -68,10 +68,8 @@ namespace RaiScraper.Services
                     Timeout = 0,
                     WaitUntil = new[] { WaitUntilNavigation.Load }
                 };
-                await page.GoToAsync(url, navigationOptions);
+                await page.GoToAsync(url.Trim(), navigationOptions);
                 await Task.Delay(_random.Next(_appSettings.RandomValueFrom, _appSettings.RandomValueTo));
-                await page.EvaluateFunctionAsync("() => { window.scrollTo(0, 400);}");
-
                 var urlParts = url.Split('/');
                 bool isItRaiPlaySound = domain.Contains("raiplaysound");
                 model.SourceUrl = url;
@@ -125,14 +123,12 @@ namespace RaiScraper.Services
                     }
                     else
                     {
-                        _logger.LogWarning("Failed to map medium in url: {url}.", url);
+                        _logger.LogInformation("Failed to map medium in url: {url}.", url);
                         return model;
                     }
                 }
-                else
-                {
-                    _logger.LogWarning("No medium url was found at {url}", url);
-                }
+                await page.CloseAsync();
+                await page.DisposeAsync();
                 return model;
             }
             catch (Exception ex)
@@ -140,25 +136,6 @@ namespace RaiScraper.Services
                 Console.WriteLine($"Error on downloading/converting: {ex.Message}");
                 return model;
             }
-            finally
-            {
-                if (page is not null) {
-                    await page.CloseAsync();
-                    await page.DisposeAsync();
-                }
-            }
-        }
-
-        private async Task<string> HandleRequestAsync(object? sender, RequestEventArgs e)
-        {
-            string m3u8 = "";
-            var url = e.Request.Url;
-            if (url.EndsWith(".m3u8"))
-            {
-                m3u8 = url;
-            }
-            await e.Request.ContinueAsync().ConfigureAwait(false);
-            return m3u8;
         }
     }
 }

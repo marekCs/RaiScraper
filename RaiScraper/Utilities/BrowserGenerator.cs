@@ -74,17 +74,19 @@ namespace RaiScraper.Utilities
         {
             try
             {
+                var browserFetcher = new BrowserFetcher();
+                await browserFetcher.DownloadAsync(BrowserFetcher.DefaultChromiumRevision);
+
                 var options = new LaunchOptions
                 {
                     Headless = true,
-                    ExecutablePath = _appSettings.ChromePath,
-                    Args = new[]
-                    {
-                "--disable-setuid-sandbox",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--no-sandbox"
-            }
+                    IgnoreHTTPSErrors = true,
                 };
+                List<string> args = new()
+                {
+                    "--no-sandbox"
+                };
+                options.Args = args.ToArray();
                 var browser = await Puppeteer.LaunchAsync(options);
                 return browser;
             }
