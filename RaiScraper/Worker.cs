@@ -98,10 +98,12 @@ namespace RaiScraper
         }
         private async Task ProcessUrlGroupAsync(List<string> urlGroup, SemaphoreSlim semaphore, ConcurrentBag<RaiNewsModel> modelList)
         {
+            IBrowser? browser = null;
             await semaphore.WaitAsync();
             try
             {
-                using var browser = await _browserService.LaunchBrowserAsync();
+                browser ??= await _browserService.LaunchBrowserAsync();
+                
                 foreach (var url in urlGroup)
                 {
                     try
@@ -115,13 +117,8 @@ namespace RaiScraper
 
                         if (model != null && (!string.IsNullOrEmpty(model.Mp3Url) || model.Mp4Url.Count > 0))
                         {
-                            _logger.LogInformation("Model is correct, going to try download it.");
                             await _downloadService.DownloadMedium(model);
                             modelList.Add(model);
-                        }
-                        else
-                        {
-                            _logger.LogCritical("Model is not correct. model.Mp3 {mp3} and model.Mp4 {mp4}.", model?.Mp3Url, model?.Mp4Url.FirstOrDefault());
                         }
                     }
                     catch (Exception ex)
@@ -133,6 +130,11 @@ namespace RaiScraper
             }
             finally
             {
+                if (browser is not null)
+                {
+                    await browser.CloseAsync();
+                    browser.Dispose();
+                }
                 semaphore.Release();
             }
         }

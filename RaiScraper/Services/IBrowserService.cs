@@ -6,7 +6,7 @@ namespace RaiScraper.Services
     {
         Task CheckRaiCookies(IPage page);
         void DisposeBrowserFetcher();
-        string GetRandomUserAgent();
+        Task<IPage> GetNewPage(IPage page);
         Task<IBrowser> LaunchBrowserAsync();
     }
 }

@@ -69,9 +69,9 @@ namespace RaiScraper.Services
                     await process.WaitForExitAsync();
                     if (process.ExitCode == 0)
                     {
-                        _logger.LogInformation("Video was converted to mp3 and saved to disk here: {path}", path);
                         break;
                     }
+                    _logger.LogInformation("Video was converted to mp3 and saved to disk here: {path}", path);
                 }
                 catch
                 {

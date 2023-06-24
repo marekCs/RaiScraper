@@ -1,5 +1,6 @@
 using RaiScraper.Helpers;
 using RaiScraper.Services;
+using RaiScraper.Utilities;
 using Serilog;
 using System.Diagnostics;
 
@@ -59,6 +60,7 @@ namespace RaiScraper
                 services.AddSingleton<IDownloadService, DownloadService>();
                 services.AddSingleton<IModelProcessingService, ModelProcessingService>();
                 services.AddSingleton<IBrowserService, BrowserService>();
+                services.AddSingleton<IBrowserGenerator, BrowserGenerator>();
 
                 services.AddHostedService<Worker>();
             });

@@ -13,5 +13,6 @@
         public int MaxConcurrentDownloads { get; set; } = 4; //default 4
         public int RandomValueFrom { get; set; } = 6000;
         public int RandomValueTo { get; set; } = 10000;
+        public string? ChromePath { get; set; }
     }
 }

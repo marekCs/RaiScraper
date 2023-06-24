@@ -166,14 +166,12 @@ namespace RaiScraper.Services
             bool filterMustBeApplied = false;
 
             var browser = await _browserService.LaunchBrowserAsync();
-            using var page = await browser.NewPageAsync();
+            var page = await browser.NewPageAsync();
             List<string>? dateFilteredUrls = new();
-
-            await ConfigurePageAsync(page);
-
             try
             {
                 await page.GoToAsync(htmlUrl);
+                await page.WaitForTimeoutAsync(2000);
                 var content = await page.GetContentAsync();
 
                 // Parse content using HtmlAgilityPack
@@ -257,24 +255,6 @@ namespace RaiScraper.Services
                 _browserService.DisposeBrowserFetcher();
             }
 
-        }
-        public async Task ConfigurePageAsync(IPage page)
-        {
-            var randomBrowser = _browserService.GetRandomUserAgent();
-            await page.SetUserAgentAsync(randomBrowser);
-            await page.SetRequestInterceptionAsync(true);
-
-            page.Request += async (sender, e) =>
-            {
-                if (e.Request.ResourceType == ResourceType.Image)
-                {
-                    await e.Request.AbortAsync();
-                }
-                else
-                {
-                    await e.Request.ContinueAsync();
-                }
-            };
         }
     }
 }

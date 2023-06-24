@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using PuppeteerSharp;
 using RaiScraper.Helpers;
 using RaiScraper.Models;
@@ -49,15 +48,12 @@ namespace RaiScraper.Services
             string domain = new Uri(url).Host;
             var model = new RaiNewsModel();
             var mediumUrls = new HashSet<string>();
-            
+            IPage? page = null;
             try
             {
-                if (browser == null || browser.IsClosed)
-                {
-                    browser = await _browserService.LaunchBrowserAsync();
-                }
-                using var page = await browser.NewPageAsync();
-                await page.SetUserAgentAsync(_browserService.GetRandomUserAgent());
+                page = await browser.NewPageAsync();
+                await Task.Delay(_random.Next(_appSettings.RandomValueFrom, _appSettings.RandomValueTo));
+                page = await _browserService.GetNewPage(page);
                 await page.SetRequestInterceptionAsync(true);
                 page.Request += async (sender, e) =>
                 {
@@ -75,6 +71,7 @@ namespace RaiScraper.Services
                 await page.GoToAsync(url, navigationOptions);
                 await Task.Delay(_random.Next(_appSettings.RandomValueFrom, _appSettings.RandomValueTo));
                 await page.EvaluateFunctionAsync("() => { window.scrollTo(0, 400);}");
+
                 var urlParts = url.Split('/');
                 bool isItRaiPlaySound = domain.Contains("raiplaysound");
                 model.SourceUrl = url;
@@ -92,15 +89,13 @@ namespace RaiScraper.Services
                 {
                     if (mediumUrls.Count > 0)
                     {
-                        _logger.LogInformation("Media Url was found in the source {url}.", url);
-
                         foreach (var mediumUrl in mediumUrls)
                         {
                             if (mediumUrl.Contains(".mp3"))
                             {
                                 model.Mp3Url = mediumUrl;
                             }
-                            else
+                            else if (mediumUrl.Contains(".m3u8") && mediumUrl.Contains("auth"))
                             {
                                 model.Mp4Url.Add(mediumUrl);
                             }
@@ -130,18 +125,27 @@ namespace RaiScraper.Services
                     }
                     else
                     {
-                        _logger.LogInformation("Failed to map medium in url: {url}.", url);
+                        _logger.LogWarning("Failed to map medium in url: {url}.", url);
                         return model;
                     }
                 }
-                await page.CloseAsync();
-                await page.DisposeAsync();
+                else
+                {
+                    _logger.LogWarning("No medium url was found at {url}", url);
+                }
                 return model;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error on downloading/converting: {ex.Message}");
                 return model;
+            }
+            finally
+            {
+                if (page is not null) {
+                    await page.CloseAsync();
+                    await page.DisposeAsync();
+                }
             }
         }
 
