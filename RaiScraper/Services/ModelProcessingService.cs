@@ -49,9 +49,10 @@ namespace RaiScraper.Services
             string domain = new Uri(url).Host;
             var model = new RaiNewsModel();
             var mediumUrls = new HashSet<string>();
+            IPage? page = null;
             try
             {
-                using var page = await browser.NewPageAsync();
+                page = await browser.NewPageAsync();
                 await Task.Delay(_random.Next(_appSettings.RandomValueFrom, _appSettings.RandomValueTo));
                 await page.SetUserAgentAsync(_browserService.GetRandomUserAgent());
                 await page.SetRequestInterceptionAsync(true);
@@ -127,14 +128,21 @@ namespace RaiScraper.Services
                         return model;
                     }
                 }
-                await page.CloseAsync();
-                await page.DisposeAsync();
+                
                 return model;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error on downloading/converting: {ex.Message}");
                 return model;
+            }
+            finally
+            {
+                if (page is not null)
+                {
+                    await page.CloseAsync();
+                    await page.DisposeAsync();
+                }                
             }
         }
     }
